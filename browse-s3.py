@@ -69,17 +69,13 @@ def handler(event, _):
             except ClientError:
                 return {"statusCode": 404, "body": "Failed to find file."}
 
-    status = 204
+    parent_folder_content = ""
+    error = ""
 
-    hx_fragment = ""
-    full_body = ""
-
-    ctx = {
-        'name': "Seasons Music",
-        'description': "A personal music player.",
-        'logo': f"{IMAGES}/logo-small-a.png",
-        'url': f'{URL}/{path}',
-    }
+    name = "Seasons Music"
+    description = "A personal music player."
+    logo = f"{IMAGES}/logo-small-a.png"
+    url = f'{URL}/{path}'
 
     match item_type:
         case ItemType.FOLDER:
@@ -89,22 +85,20 @@ def handler(event, _):
             if match:
                 year = "20" + match.group(1)
                 season = season_map.get(match.group(2), "")
-                ctx['name'] = f"{year} {season} | Seasons Music"
-                ctx['description'] = f"Some anime music from the {year} {season} season"
+                name = f"{year} {season} | Seasons Music"
+                description = f"Some anime music from the {year} {season} season"
             elif folder != INDEX:
-                ctx['name'] = f"{folder} | Seasons Music"
+                name = f"{folder} | Seasons Music"
 
-            folder_content = f"""\
-            <title id="title" hx-swap-oob="true">{ctx['name']}</title>
-            {display_folder_contents(path, response)}"""
+            folder = display_folder_contents(path, response)
 
-            status = 200
-            hx_fragment = folder_content
-            full_body = (
-                get_file_template("", "")
+            hx_fragment = f"""\
+            <title id="title" hx-swap-oob="true">{name}</title>
+            {folder}"""
+
+            audio = (
+                get_file_template("")
                 + '<script id="load-music" type="text/javascript"></script>'
-                + folder_content
-                + get_error_content("")
             )
         case ItemType.FILE:
             url = s3_client.generate_presigned_url(
@@ -117,8 +111,6 @@ def handler(event, _):
             )
 
             parent = os.path.dirname(path.rstrip('/')) + '/'
-            parent_folder_content = ""
-            error = ""
 
             try:
                 parent_folder_content = display_folder_contents(parent, get_s3_folder(BUCKET, parent))
@@ -126,44 +118,28 @@ def handler(event, _):
                 error = "Failed to list parent folder."
 
             full_name = os.path.splitext(path)[0]
-            ctx['name'] = f"{os.path.basename(full_name)} | Seasons Music"
+            name = f"{os.path.basename(full_name)} | Seasons Music"
 
             with open('loadMusic.js') as load_music_file:
                 load_music = load_music_file.read()
 
-            load_music = f"""\
+            hx_fragment = f"""\
+            <title id="title" hx-swap-oob="true">{name}</title>
             <script id="load-music" hx-swap-oob="true" type="text/javascript">
-            async function loadMusic() {{
-                const url = '{url.replace("'", "\\'")}'
-                {load_music}
-                nameElement.innerText = '{full_name.replace("'", "\\'")}'
-                console.info('New:', nameElement.innerText)
-                {'loadPlayer()' if HX_REQUEST else ''}
-            }}
-            loadMusic()
+                {load_music\
+                    .replace("{{ url }}", url.replace("'", "\\'"))
+                    .replace("{{ name }}", full_name.replace("'", "\\'"))
+                    .replace("{{ loadPlayer }}", 'loadPlayer()' if HX_REQUEST else '')
+                }
             </script>"""
 
-            status = 200
-            hx_fragment = load_music
-            full_body = (
-                f'<title id="title" hx-swap-oob="true">{ctx['name']}</title>'
-                + get_file_template(
-                    full_name,
-                    f"""\
-                    <button
-                        id="load-button" onclick="loadPlayer()"
-                        class="bg-red-600 p-2 rounded-md"
-                    >Click to start loading</button>"""
-                )
-                + load_music
-                + parent_folder_content
-                + get_error_content(error)
+            audio = get_file_template(
+                f"""\
+                <button
+                    id="load-button" onclick="loadPlayer()"
+                    class="bg-red-600 p-2 rounded-md"
+                >Click to start loading</button>"""
             )
-        # case _:
-        #     status = 404
-        #     full_body = "Failed to find file."
-    
-    ctx['content'] = full_body
 
     if HX_REQUEST:
         body = hx_fragment
@@ -174,18 +150,23 @@ def handler(event, _):
             css = css_file.read()
 
         body = index\
-            .replace('{{ name }}', ctx.get('name', ''))\
-            .replace('{{ logo }}', ctx.get('logo', ''))\
-            .replace('{{ description }}', ctx.get('description', ''))\
-            .replace('{{ url }}', ctx.get('url', ''))\
+            .replace('{{ name }}', name)\
+            .replace('{{ logo }}', logo)\
+            .replace('{{ description }}', description)\
+            .replace('{{ url }}', url)\
             .replace('{{ css }}', css)\
-            .replace('{{ content }}', full_body)
+            .replace('{{ content }}', (
+                audio
+                + hx_fragment
+                + parent_folder_content
+                + get_error_content(error)
+            ))
 
     # Remove leading spaces on each line
     body = '\n'.join([line.lstrip() for line in body.splitlines()])
 
     return {
-        "statusCode": status,
+        "statusCode": 200,
         "headers": {
             "Content-Type": "text/html",
             "Vary": "Hx-Request",
@@ -222,7 +203,6 @@ def display_folder_contents(path, response):
     file_entries = [
         f"<li>{get_htmx_link(parent, '..', False) if parent != '/' else ''}</li>"
     ]
-
     for key in files:
         name, ext = os.path.splitext(key.replace(path, '').rstrip('/'))
         file_entries.append(f'<li>{get_htmx_link(key, name, ext != '')}</li>')
@@ -232,7 +212,7 @@ def display_folder_contents(path, response):
         {'\n'.join(file_entries)}
     </ul>"""
 
-def get_file_template(name, content):
+def get_file_template(content):
     with open("player.html") as player_file:
         player = player_file.read()
 
@@ -245,7 +225,7 @@ def get_file_template(name, content):
         class="max-w-md flex flex-col items-center gap-2"
         style="min-width:50%"
     >
-        <p id="name">{name}</p>
+        <p id="name"></p>
 
         {player}
 
@@ -260,11 +240,11 @@ def get_file_template(name, content):
 def get_error_content(content):
     return f'<p id="error" class="text-red-600">{content}</p>'
 
-def get_htmx_link(url, text, is_file):
-    url = quote_path_components(url)
+def get_htmx_link(path, text, is_file):
+    encoded_path = encode_path_components(path)
     return f"""<a
-        href="{URL}/{url}" hx-push-url="{URL}/{url}" hx-swap="none"
-        {'hx-on::before-request="resetPlayer()"' if is_file else ''}
+        href="{URL}/{encoded_path}" hx-push-url="{URL}/{encoded_path}" hx-swap="none"
+        {f'hx-on::before-request="trackClicked(\'{os.path.splitext(path)[0]}\')"' if is_file else ''}
         class="cursor-pointer"
     >{text}</a>"""
 
@@ -276,7 +256,7 @@ def music_order(name):
     else:
         return (3, name)
 
-def quote_path_components(path):
+def encode_path_components(path):
     """
     Splits a path into its components, quotes each component, and returns
     a list of the quoted components.

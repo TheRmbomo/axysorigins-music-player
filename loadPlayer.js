@@ -1,6 +1,6 @@
 /** @typedef {Window & { url: string | undefined }} Global
  *  @type {Global} */
-const global = window;
+var global = window;
 global.url = ''
 
 const audioContext = new window.AudioContext()
@@ -34,6 +34,15 @@ document.fonts.ready.then(() => {
 	controls.classList.remove('invisible')
 })
 
+async function trackClicked(path) {
+	if (path === nameElement.innerText) return
+
+	await resetPlayer()
+
+	// Next the request for loadMusic starts
+	// Then loadPlayer is called
+}
+
 async function loadPlayer() {
 	if (!global.url) return console.error('No music URL')
 
@@ -41,9 +50,6 @@ async function loadPlayer() {
 	if (loadButton) loadButton.remove()
 
 	const currentName = nameElement.innerText
-
-	playing = false
-	pending = true
 
 	await resetPlayer()
 
@@ -57,16 +63,10 @@ async function loadPlayer() {
 		console.info('Loaded:', currentName)
 
 		audioBuffer = buffer
-
-		playButton.disabled = false
 		loopButton.disabled = false
 		// downloadButton.disabled = false
 
-		updateTimelineDisplay()
-
 		pending = false
-
-		offset = 0
 		await play()
 	})
 	.catch((e) => {
@@ -92,46 +92,63 @@ let resolveSourceEnded = null
 async function resetPlayer() {
 	console.info('Player Reset')
 
+	cancelAnimationFrame(animationFrameId)
+	animationFrameId = null
 	audioBuffer = null
 	offset = 0
 	updateTimelineDisplay()
-
+	
+	pending = true
 	playing = false
 	updatePlayButton()
 
 	await closeSource()
+
+	pending = true
+	playing = false
+	updatePlayButton()
 }
 
 async function closeSource() {
 	if (!source) return
 
-	if (pending) playing = false
-	updatePlayButton()
-
 	const sourceHasEnded = new Promise((res) => resolveSourceEnded = res)
+	source.disconnect()
 	source.stop()
 	await sourceHasEnded.catch(console.error)
 }
 
 async function onSourceEnd() {
-	source.disconnect()
 	source = null
 	resolveSourceEnded && resolveSourceEnded()
 
-	if (pending) {
-		playing = false
-		cancelAnimationFrame(animationFrameId)
-	} else if (looping) {
+	// Natural end
+	if (!pending) {
 		offset = 0
-		await play()
+		playing = false
+		updateTimelineDisplay()
+		updatePlayButton()
+
+		if (looping) {
+			await play()
+		}
 	}
+
+	cancelAnimationFrame(animationFrameId)
+	animationFrameId = null
 }
 
 async function play() {
-	if (pending) return console.warn('Pending'); pending = true
+	if (pending) return console.warn('Pending')
 	if (!audioBuffer) return console.warn('Not Loaded')
+	
+	pending = true
+
 	if (source) {
 		playing = true
+		pending = false
+		updateTimelineDisplay()
+		updatePlayButton()
 		return console.warn('Currently Playing')
 	}
 
@@ -146,21 +163,36 @@ async function play() {
 	source.onended = onSourceEnd
 
 	source.start(0, offset)
-	updateTimeline()
 
 	playing = true
-	updatePlayButton()
-
 	pending = false
+	updateTimeline()
+	updatePlayButton()
 }
 
 async function pause() {
-	if (pending) return console.warn('Pending'); pending = true
+	if (pending) return console.warn('Pending')
+
+	pending = true
+	playing = false
+	// Do not update play button
 
 	await closeSource()
 
 	offset = audioContext.currentTime - start
+
 	pending = false
+	updatePlayButton()
+}
+
+function toggleLoop() {
+	if (looping) {
+		looping = false
+		loopButton.classList.remove('text-black', 'bg-white')
+	} else {
+		looping = true
+		loopButton.classList.add('text-black', 'bg-white')
+	}
 }
 
 async function seekAudio(seekTime) {
@@ -174,43 +206,6 @@ async function seekAudio(seekTime) {
 	} else {
 		updateTimelineDisplay()
 		updatePlayButton()
-	}
-}
-
-function updatePlayButton() {
-	if (playing) { playButton.innerText = 'pause' }
-	else { playButton.innerText = 'play_arrow' }
-}
-
-function updateTimeline() {
-	offset = audioContext.currentTime - start
-	updateTimelineDisplay()
-
-	if (!source || !playing || !audioBuffer) return
-	animationFrameId = requestAnimationFrame(updateTimeline)
-}
-
-function updateTimelineDisplay() {
-	const currentMinutes = Math.floor(offset / 60)
-	const currentSeconds = Math.floor(offset % 60).toString().padStart(2, '0')
-
-	const durationMinutes = audioBuffer ? Math.floor(audioBuffer.duration / 60) : 0
-	const durationSeconds = (audioBuffer ? Math.floor(audioBuffer.duration % 60) : 0).toString().padStart(2, '0')
-
-	currentTimeDisplay.textContent = `${currentMinutes}:${currentSeconds} / ${durationMinutes}:${durationSeconds}`
-
-	const progress = audioBuffer ? (offset / audioBuffer.duration) * 100 : 0
-	progressBar.style.width = `${progress}%`
-	positionIndicator.style.left = `${progress}%`
-}
-
-function toggleLoop() {
-	if (looping) {
-		looping = false
-		loopButton.classList.remove('text-black', 'bg-white')
-	} else {
-		looping = true
-		loopButton.classList.add('text-black', 'bg-white')
 	}
 }
 
@@ -259,3 +254,46 @@ positionIndicator.addEventListener('pointerdown', (e) => {
 	document.addEventListener('pointermove', onMouseMove)
 	document.addEventListener('pointerup', onMouseUp)
 })
+
+function updatePlayButton() {
+	if (pending) {
+		playButton.innerText = 'cached'
+		playButton.setAttribute('disabled', 'true')
+		return
+	}
+
+	playButton.removeAttribute('disabled')
+	if (playing) { playButton.innerText = 'pause' }
+	else { playButton.innerText = 'play_arrow' }
+}
+
+function updateTimeline() {
+	offset = audioContext.currentTime - start
+	updateTimelineDisplay()
+
+	if (!audioBuffer) return console.warn("Not Loaded")
+	if (!source) return console.warn("No Source")
+	if (!playing) return console.warn("Not Playing")
+
+	animationFrameId = requestAnimationFrame(updateTimeline)
+}
+
+function updateTimelineDisplay() {
+	if (!audioBuffer) {
+		offset = 0
+	} else if (offset > audioBuffer.duration) {
+		offset = audioBuffer.duration
+	}
+
+	const currentMinutes = Math.floor(offset / 60)
+	const currentSeconds = Math.floor(offset % 60).toString().padStart(2, '0')
+
+	const durationMinutes = audioBuffer ? Math.floor(audioBuffer.duration / 60) : 0
+	const durationSeconds = (audioBuffer ? Math.floor(audioBuffer.duration % 60) : 0).toString().padStart(2, '0')
+
+	currentTimeDisplay.textContent = `${currentMinutes}:${currentSeconds} / ${durationMinutes}:${durationSeconds}`
+
+	const progress = audioBuffer ? (offset / audioBuffer.duration) * 100 : 0
+	progressBar.style.width = `${progress}%`
+	positionIndicator.style.left = `${progress}%`
+}
