@@ -4,11 +4,13 @@ import base64
 import urllib.parse
 import gzip
 import re
+from http import cookies
 
 import boto3
 from botocore.exceptions import ClientError
 
-BUCKET = os.getenv('PLAYER_BUCKET') # e.g. player-files
+PASSWORD = os.getenv('PLAYER_PASSWORD', '')
+BUCKET = os.getenv('PLAYER_BUCKET', '') # e.g. player-files
 URL = os.getenv('PLAYER_URL', '').rstrip('/') # e.g. https://example-website.com/player
 INDEX = os.getenv('PLAYER_INDEX', '').lstrip('/').rstrip('/') # e.g. index
 IMAGES = os.getenv('PLAYER_IMAGES', '').rstrip('/') # e.g. https://example-website.com/images
@@ -23,6 +25,23 @@ class ItemType(Enum):
     FILE = 2
 
 def handler(event, _):
+    print(event)
+
+    if PASSWORD == '':
+        return {"statusCode": 500, "body": "PLAYER_PASSWORD is missing."}
+
+    response_headers = {}
+
+    path = urllib.parse.unquote(event['pathParameters']['proxy'])
+    if path.lstrip('/').rstrip('/') == 'password':
+        pw = event['queryStringParameters'].get('password')
+        if pw != PASSWORD:
+            return {"statusCode": 401, "body": "Incorrect password."}
+        response_headers['Set-Cookie'] = 'Signed-In=true; Path=/; Secure; HttpOnly; SameSite=Strict;'
+        response_headers['HX-Refresh'] = 'true'
+        path = INDEX
+        return {"statusCode": 204, "headers": response_headers, "body": ""}
+
     if BUCKET == '':
         return {"statusCode": 500, "body": "PLAYER_BUCKET is missing."}
     if URL == '':
@@ -32,17 +51,20 @@ def handler(event, _):
     if IMAGES == '':
         return {"statusCode": 500, "body": "PLAYER_IMAGES is missing."}
 
-    path = urllib.parse.unquote(event['pathParameters']['proxy'])
-    headers = event.get('headers') or {}
+    request_headers = event.get('headers') or {}
+
+    cookie = request_headers.get('cookie') or request_headers.get('Cookie') or ''
+    C = cookies.SimpleCookie()
+    C.load(cookie)
 
     HX_REQUEST = (
-        headers.get('Hx-Request')
-        or headers.get('HX-Request')
-        or headers.get('hx-request')
+        request_headers.get('Hx-Request')
+        or request_headers.get('HX-Request')
+        or request_headers.get('hx-request')
     ) == 'true' and (
-        headers.get('Hx-History-Restore-Request')
-        or headers.get('HX-History-Restore-Request')
-        or headers.get('hx-history-restore-request')
+        request_headers.get('Hx-History-Restore-Request')
+        or request_headers.get('HX-History-Restore-Request')
+        or request_headers.get('hx-history-restore-request')
     ) != 'true'
 
     item_type = ItemType.UNKNOWN
@@ -141,37 +163,57 @@ def handler(event, _):
                 >Click to start loading</button>"""
             )
 
+    status = 200
+
+    signed_in = C.get('Signed-In')
+    if signed_in:
+        signed_in = signed_in.value
+    signed_in = bool(signed_in)
+
     if HX_REQUEST:
-        body = hx_fragment
+        if not signed_in:
+            status = 403
+            body = ""
+        else:
+            body = hx_fragment
     else:
         with open('index.html') as index_file:
             index = index_file.read()
-        with open("index.css") as css_file:
-            css = css_file.read()
+
+        css = ""
+        if signed_in:
+            with open("index.css") as css_file:
+                css = css_file.read()
 
         body = index\
             .replace('{{ name }}', name)\
             .replace('{{ logo }}', logo)\
             .replace('{{ description }}', description)\
             .replace('{{ url }}', url)\
-            .replace('{{ css }}', css)\
-            .replace('{{ content }}', (
+            .replace('{{ css }}', css)
+
+        if signed_in:
+            body = body.replace('{{ content }}', (
                 audio
                 + hx_fragment
                 + parent_folder_content
                 + get_error_content(error)
             ))
+        else:
+            with open('password.html') as password_file:
+                password = password_file.read()
+            body = body.replace('{{ content }}', password.replace('{{ url }}', URL))
 
     # Remove leading spaces on each line
     body = '\n'.join([line.lstrip() for line in body.splitlines()])
 
+    response_headers['Content-Type'] = 'text/html'
+    response_headers['Vary'] = 'Hx-Request'
+    response_headers['Content-Encoding'] = 'gzip'
+
     return {
-        "statusCode": 200,
-        "headers": {
-            "Content-Type": "text/html",
-            "Vary": "Hx-Request",
-            "Content-Encoding": "gzip",
-        },
+        "statusCode": status,
+        "headers": response_headers,
         "isBase64Encoded": True,
         "body": base64.b64encode(gzip.compress(body.encode('utf-8'))).decode('utf-8'),
     }
