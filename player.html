@@ -1,0 +1,43 @@
+<div
+	id="player"
+	class="w-full flex flex-col gap-2 p-2 bg-slate-500 rounded-md select-none"
+	style="touch-action:none"
+>
+	<div class="flex gap-2 items-center">
+		<div id="timeline" class="flex-1 mx-2 relative h-2 bg-slate-600 rounded-md" style="cursor:pointer">
+			<div id="progress-bar" class="h-full bg-blue-500 rounded-md" style="width:0"></div>
+			<div
+				id="position-indicator" class="absolute rounded-full bg-blue-300"
+				style="width:1rem;height:1rem;left:0;top:50%;margin-left:-0.5rem;transform:translateY(-50%);
+				cursor:grab;"
+			></div>
+		</div>
+		<div id="current-time">0:00 / 0:00</div>
+	</div>
+
+	<div id="player-controls" class="flex gap-2 items-center invisible">
+		<button
+			id="play" disabled
+			onclick="togglePlay()"
+			class="material-symbols-outlined rounded-full p-1"
+			style="outline:none"
+		>play_arrow</button>
+
+		<span class="flex-1 inline-block"></span>
+
+		<button
+			id="loop" disabled hx-preserve
+			onclick="toggleLoop()"
+			class="material-symbols-outlined rounded-full p-1"
+			style="outline:none"
+		>autorenew</button>
+
+		<!-- <button
+id="download" disabled
+class="material-symbols-outlined rounded-full p-1"
+style="outline:none"
+>download</button> -->
+	</div>
+</div>
+
+<div id="cover-art"></div>
