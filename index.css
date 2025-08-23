@@ -1,11 +1,18 @@
 :root {
 	--color-slate-500: oklch(55.4% 0.046 257.417);
 	--color-slate-600: oklch(44.6% 0.043 257.281);
+	--color-slate-700: oklch(37.2% 0.044 257.287);
 }
 
 .max-w-md { max-width: 28rem }
 .min-w-half { min-width: 50% }
 .bg-slate-500 { background-color: var(--color-slate-500) }
 .bg-slate-600 { background-color: var(--color-slate-600) }
+.bg-slate-700 { background-color: var(--color-slate-700) }
 
-button:disabled { pointer: auto }
+html, body {
+	margin: 0;
+	width: 100vw;
+	overflow-x: hidden;
+}
+button:disabled { cursor: auto }

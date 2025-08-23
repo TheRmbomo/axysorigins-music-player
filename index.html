@@ -1,17 +1,17 @@
 <!DOCTYPE html>
 <html>
 	<head>
-		<title id="title">{{ name }}</title>
+		<title id="title">{{ title }}</title>
 		<link rel="icon" type="image/png" href="{{ logo }}">
 
-		<meta property="og:title" content="{{ name }}"/>
+		<meta property="og:title" content="{{ title }}"/>
 		<meta property="og:description" content="{{ description }}"/>
 		<meta property="og:image" content="{{ logo }}"/>
 		<meta property="og:url" content="{{ url }}"/>
 		<meta property="og:type" content="music.playlist"/>
 
 		<meta name="twitter:card" content="summary"/>
-		<meta name="twitter:title" content="{{ name }}"/>
+		<meta name="twitter:title" content="{{ title }}"/>
 		<meta name="twitter:description" content="{{ description }}"/>
 		<meta name="twitter:image" content="{{ logo }}"/>
 
@@ -28,7 +28,19 @@
 		<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"/>
 		<style>{{ css }}</style>
 	</head>
-	<body id="body" hx-preserve class="flex flex-col gap-2 items-center h-screen w-screen m-0 p-2">
+	<body
+		id="body"
+		class="flex flex-col gap-2 items-center h-screen w-screen m-0 p-2"
+	>
+		<script>
+			// Temporary
+			window.addEventListener("pageshow", function (event) {
+				if (event.persisted) {
+					window.location.reload()
+				}
+			})
+		</script>
 		{{ content }}
 	</body>
 </html>
+

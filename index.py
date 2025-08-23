@@ -1,4 +1,4 @@
-import os.path
+import os
 from enum import Enum
 import base64
 import urllib.parse
@@ -9,13 +9,15 @@ from http import cookies
 import boto3
 from botocore.exceptions import ClientError
 
-PASSWORD = os.getenv('PLAYER_PASSWORD', '')
+import router
+
 BUCKET = os.getenv('PLAYER_BUCKET', '') # e.g. player-files
 URL = os.getenv('PLAYER_URL', '').rstrip('/') # e.g. https://example-website.com/player
 INDEX = os.getenv('PLAYER_INDEX', '').lstrip('/').rstrip('/') # e.g. index
 IMAGES = os.getenv('PLAYER_IMAGES', '').rstrip('/') # e.g. https://example-website.com/images
 
 season_map = {"1": "Winter", "2": "Spring", "3": "Summer", "4": "Fall"}
+display_music_exts = ['mp3', 'm4a']
 
 s3_client = boto3.client('s3')
 
@@ -27,20 +29,11 @@ class ItemType(Enum):
 def handler(event, _):
     print(event)
 
-    if PASSWORD == '':
-        return {"statusCode": 500, "body": "PLAYER_PASSWORD is missing."}
-
-    response_headers = {}
-
     path = urllib.parse.unquote(event['pathParameters']['proxy'])
-    if path.lstrip('/').rstrip('/') == 'password':
-        pw = event['queryStringParameters'].get('password')
-        if pw != PASSWORD:
-            return {"statusCode": 401, "body": "Incorrect password."}
-        response_headers['Set-Cookie'] = 'Signed-In=true; Path=/; Secure; HttpOnly; SameSite=Strict;'
-        response_headers['HX-Refresh'] = 'true'
-        path = INDEX
-        return {"statusCode": 204, "headers": response_headers, "body": ""}
+
+    response = router.route(event, path.lstrip('/').rstrip('/'))
+    if response != None:
+        return response
 
     if BUCKET == '':
         return {"statusCode": 500, "body": "PLAYER_BUCKET is missing."}
@@ -94,29 +87,27 @@ def handler(event, _):
     parent_folder_content = ""
     error = ""
 
-    name = "Seasons Music"
+    title = "Seasons Music"
     description = "A personal music player."
     logo = f"{IMAGES}/logo-small-a.png"
     url = f'{URL}/{path}'
 
+    basename = os.path.basename(path)
+    match = re.match(r"(\d{1,2})-(1|2|3|4)", path)
+    if match:
+        year = "20" + match.group(1)
+        season = season_map.get(match.group(2), "")
+        title = f"{year} {season} | Seasons Music"
+        description = f"Some anime music from the {year} {season} season"
+
     match item_type:
         case ItemType.FOLDER:
-            folder = os.path.basename(path)
-
-            match = re.match(r"(\d{1,2})-(1|2|3|4)", folder)
-            if match:
-                year = "20" + match.group(1)
-                season = season_map.get(match.group(2), "")
-                name = f"{year} {season} | Seasons Music"
-                description = f"Some anime music from the {year} {season} season"
-            elif folder != INDEX:
-                name = f"{folder} | Seasons Music"
-
-            folder = display_folder_contents(path, response)
+            if basename != INDEX:
+                title = f"{basename} | Seasons Music"
 
             hx_fragment = f"""\
-            <title id="title" hx-swap-oob="true">{name}</title>
-            {folder}"""
+            <title id="title" hx-swap-oob="true">{title}</title>
+            {display_folder_contents(path, response)}"""
 
             audio = (
                 get_file_template("")
@@ -139,18 +130,24 @@ def handler(event, _):
             except:
                 error = "Failed to list parent folder."
 
-            full_name = os.path.splitext(path)[0]
-            name = f"{os.path.basename(full_name)} | Seasons Music"
+            path_name = os.path.splitext(path)[0]
+            name = os.path.basename(path_name)\
+                .replace('OP ', '')\
+                .replace('ED ', '')\
+                .replace('FULL ', '')
+
+            title = f"{name} | Seasons Music"
 
             with open('loadMusic.js') as load_music_file:
                 load_music = load_music_file.read()
 
             hx_fragment = f"""\
-            <title id="title" hx-swap-oob="true">{name}</title>
+            <title id="title" hx-swap-oob="true">{title}</title>
             <script id="load-music" hx-swap-oob="true" type="text/javascript">
                 {load_music\
                     .replace("{{ url }}", url.replace("'", "\\'"))
-                    .replace("{{ name }}", full_name.replace("'", "\\'"))
+                    .replace("{{ path }}", path_name.replace("'", "\\'").replace(f'{INDEX}/', ''))
+                    .replace("{{ name }}", name)
                     .replace("{{ loadPlayer }}", 'loadPlayer()' if HX_REQUEST else '')
                 }
             </script>"""
@@ -181,12 +178,18 @@ def handler(event, _):
             index = index_file.read()
 
         css = ""
+        playlist = ""
+        load_playlist = ""
         if signed_in:
             with open("index.css") as css_file:
                 css = css_file.read()
+            with open("playlist.html") as playlist_file:
+                playlist = playlist_file.read()
+            with open("loadPlaylist.js") as load_playlist_file:
+                load_playlist = f'<script id="load-playlist-tabs">{load_playlist_file.read()}</script>'
 
         body = index\
-            .replace('{{ name }}', name)\
+            .replace('{{ title }}', title)\
             .replace('{{ logo }}', logo)\
             .replace('{{ description }}', description)\
             .replace('{{ url }}', url)\
@@ -197,6 +200,8 @@ def handler(event, _):
                 audio
                 + hx_fragment
                 + parent_folder_content
+                + playlist
+                + load_playlist
                 + get_error_content(error)
             ))
         else:
@@ -207,9 +212,15 @@ def handler(event, _):
     # Remove leading spaces on each line
     body = '\n'.join([line.lstrip() for line in body.splitlines()])
 
+    response_headers = {}
     response_headers['Content-Type'] = 'text/html'
     response_headers['Vary'] = 'Hx-Request'
     response_headers['Content-Encoding'] = 'gzip'
+
+    # Temporary
+    response_headers['Cache-Control'] = 'no-store'
+    response_headers['Pragma'] = 'no-cache'
+    response_headers['Expire'] = 0
 
     return {
         "statusCode": status,
@@ -243,16 +254,42 @@ def display_folder_contents(path, response):
 
     parent = os.path.dirname(path.rstrip('/')) + '/'
     file_entries = [
-        f"<li>{get_htmx_link(parent, '..', False) if parent != '/' else ''}</li>"
+       entry_element(parent, '..', False) if parent != '/' else ''
     ]
+
     for key in files:
         name, ext = os.path.splitext(key.replace(path, '').rstrip('/'))
-        file_entries.append(f'<li>{get_htmx_link(key, name, ext != '')}</li>')
+        name = name\
+            .replace('FULL ', '')\
+            .replace('OP ', badge('OP'))\
+            .replace('ED ', badge('ED'))
+        file_entries.append(entry_element(key, name, ext in display_music_exts))
     
     return f"""\
-    <ul id="folder" hx-swap-oob="true" hx-boost="true" class="p-4 max-w-md min-w-half">
+    <p id="folder-name" hx-swap-oob="true">{path.replace(f'{INDEX}/', '')}</p>
+    <ul id="folder" hx-swap-oob="true" hx-boost="true"
+    class="flex flex-col gap-2 p-2 w-screen md:max-w-md">
         {'\n'.join(file_entries)}
     </ul>"""
+
+def badge(text):
+    return f'<span class="inline-block p-1 rounded-sm bg-slate-700 leading-none">{text}</span>'
+
+def entry_element(path, text, is_file):
+    encoded_path = encode_path_components(path)
+    return f"""\
+    <li class="flex gap-2 bg-slate-700 p-2 rounded-md">
+        <a
+            href="{URL}/{encoded_path}" hx-push-url="{URL}/{encoded_path}" hx-swap="none"
+            {f'hx-on::before-request="trackClicked(\'{os.path.splitext(path)[0].replace(f'{INDEX}/', '')}\')"' if is_file else ''}
+            class="flex-1 flex gap-2 items-center bg-slate-600 rounded-md p-1 hover:bg-slate-500 focus:bg-slate-500
+            cursor-pointer"
+        >{text}</a>
+        {f"""<button
+            class="bg-slate-600 rounded-md p-1 px-2 active:bg-slate-500 transition-all
+            material-symbols-outlined"
+        >playlist_add</button>""" if is_file else ''}
+    </li>"""
 
 def get_file_template(content):
     with open("player.html") as player_file:
@@ -270,25 +307,16 @@ def get_file_template(content):
         <p id="name"></p>
 
         {player}
+        {content}
 
         <script id="load-player" hx-preserve type="text/javascript">
         {load_player}
         </script>
-
-        {content}
     </div>
 """
 
 def get_error_content(content):
     return f'<p id="error" class="text-red-600">{content}</p>'
-
-def get_htmx_link(path, text, is_file):
-    encoded_path = encode_path_components(path)
-    return f"""<a
-        href="{URL}/{encoded_path}" hx-push-url="{URL}/{encoded_path}" hx-swap="none"
-        {f'hx-on::before-request="trackClicked(\'{os.path.splitext(path)[0]}\')"' if is_file else ''}
-        class="cursor-pointer"
-    >{text}</a>"""
 
 def music_order(name):
     if '/OP ' in name:
