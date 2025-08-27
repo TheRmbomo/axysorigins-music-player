@@ -16,3 +16,8 @@ html, body {
 	overflow-x: hidden;
 }
 button:disabled { cursor: auto }
+
+.material-symbols-outlined {
+	width: 2rem;
+	height: 2rem;
+}

@@ -1,9 +1,10 @@
 {
 	"compilerOptions": {
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
 		"module": "es2020",
 		"target": "es2020",
 		"checkJs": true,
-		"noImplicitAny": true,
-		"strict": true
+		"noImplicitAny": true
 	}
 }

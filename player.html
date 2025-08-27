@@ -6,29 +6,32 @@
 	<audio id="hidden-audio" preload="auto" playsinline hidden style="display:none"></audio>
 
 	<div class="flex gap-2 items-center">
-		<div id="timeline" class="flex-1 mx-2 relative h-2 bg-slate-600 rounded-md" style="cursor:pointer">
+		<div
+			id="timeline" disabled
+			class="flex-1 mx-2 relative h-2 bg-slate-600 rounded-md"
+		>
 			<div id="progress-bar" class="h-full bg-blue-500 rounded-md" style="width:0"></div>
 			<div
-				id="position-indicator" class="absolute rounded-full bg-blue-300"
-				style="width:1rem;height:1rem;left:0;top:50%;margin-left:-0.5rem;transform:translateY(-50%);
-				cursor:grab;"
+				id="position-indicator" disabled
+				class="absolute rounded-full bg-blue-300"
+				style="width:1rem;height:1rem;left:0;top:50%;margin-left:-0.5rem;transform:translateY(-50%);"
 			></div>
 		</div>
 		<div id="current-time">0:00 / 0:00</div>
 	</div>
 
-	<div id="player-controls" class="flex gap-2 items-center invisible">
+	<div id="player-controls" class="flex gap-2 items-center">
 		<button
 			id="play" disabled
 			onclick="togglePlay()"
-			class="material-symbols-outlined rounded-full p-1"
+			class="material-symbols-outlined rounded-full p-1 w-8 h-8"
 			style="outline:none"
 		>play_arrow</button>
 
 		<!-- <button -->
 		<!-- 	id="volume" disabled -->
 		<!-- 	onclick="toggleVolume()" -->
-		<!-- 	class="material-symbols-outlined rounded-full p-1" -->
+		<!-- 	class="material-symbols-outlined rounded-full p-1 hidden" -->
 		<!-- 	style="outline:none" -->
 		<!-- >volume_up</button> -->
 
@@ -37,7 +40,7 @@
 		<button
 			id="loop" disabled hx-preserve
 			onclick="toggleLoop()"
-			class="material-symbols-outlined rounded-full p-1"
+			class="material-symbols-outlined rounded-full p-1 w-8 h-8"
 			style="outline:none"
 		>autorenew</button>
 
@@ -50,4 +53,15 @@ style="outline:none"
 </div>
 
 <div id="cover-art"></div>
+
+<style>
+#timeline:not([disabled]) {
+	cursor: pointer;
+}
+
+#position-indicator:not([disabled]) {
+	cursor: grab;
+}
+</style>
+
 

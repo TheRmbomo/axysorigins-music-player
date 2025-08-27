@@ -32,7 +32,7 @@ function setActive(index) {
 			? panel.classList.add('hidden')
 			: panel.classList.remove('hidden')
 	})
-	tabs[index].focus()
+	tabs[index]?.focus()
 }
 
 tabs.forEach((tab, i) => {

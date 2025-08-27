@@ -27,18 +27,24 @@
 		<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 		<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"/>
 		<style>{{ css }}</style>
+		<style id="hide-icons">.material-symbols-outlined { visibility: hidden }</style>
 	</head>
 	<body
 		id="body"
 		class="flex flex-col gap-2 items-center h-screen w-screen m-0 p-2"
 	>
 		<script>
-			// Temporary
-			window.addEventListener("pageshow", function (event) {
-				if (event.persisted) {
-					window.location.reload()
-				}
-			})
+		// Temporary
+		window.addEventListener("pageshow", function (event) {
+			const historyTraversal = event.persisted || (
+				typeof window.performance != "undefined"
+					&& window.performance.navigation.type === 2
+			)
+
+			if (historyTraversal) {
+				window.location.reload()
+			}
+		})
 		</script>
 		{{ content }}
 	</body>

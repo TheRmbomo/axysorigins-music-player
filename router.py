@@ -1,5 +1,4 @@
 import os
-import re
 from typing import Dict, Any
 
 PASSWORD = os.getenv('PLAYER_PASSWORD', '')
@@ -18,5 +17,3 @@ def route(event: Any, path: str) -> Dict[str, Any] | None:
         response_headers['Set-Cookie'] = 'Signed-In=true; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=2592000;'
         response_headers['HX-Refresh'] = 'true'
         return {"statusCode": 204, "headers": response_headers, "body": ""}
-    elif (_ := re.match(r"metadata", path)):
-        pass

@@ -86,21 +86,25 @@ function initAudio() {
 	audio.crossOrigin = 'anonymous'
 
 	audio.onloadstart = () => {
-		app.loaded = false
 		console.info('Loading:', elements.nameElement?.innerText)
+		app.loaded = false
+		updatePlayButton()
 	}
 
 	audio.oncanplay = async () => {
 		if (app.loaded) return
 
+		app.pending = false
 		app.loaded = true
 		console.info('Loaded:', elements.nameElement?.innerText)
-
-		elements.loopButton && (elements.loopButton.disabled = false)
-		// elements.downloadButton && (elements.downloadButton.disabled = false)
-
-		app.pending = false
 		await play()
+
+		elements.loopButton?.removeAttribute('disabled')
+		// elements.downloadButton?.removeAttribute('disabled')
+
+		elements.timeline?.removeAttribute('disabled')
+		elements.positionIndicator?.removeAttribute('disabled')
+
 	}
 
 	audio.onended = async () => {
@@ -131,6 +135,15 @@ function initAudio() {
 
 		errorElement.innerText = audio.error.message
 	}
+
+	window.addEventListener('beforeunload', function () {
+		if (app.playing) {
+			localStorage.setItem('lastPlaying', JSON.stringify({
+				path: app.currentPath,
+				time: elements.audio?.currentTime,
+			}))
+		}
+	})
 }
 initAudio()
 
@@ -143,13 +156,57 @@ function initSource() {
 }
 initSource()
 
-document.fonts.ready.then(() => {
-	elements.controls?.classList.remove('invisible')
+/** @param {number} delay - Delay in milliseconds
+  * @returns {function (): Promise<void>}
+  * */
+function sleep(delay) {
+	return () => new Promise(r => setTimeout(r, delay))
+}
+
+function revealIcons() {
+	document.getElementById('hide-icons')?.remove()
+
+	const icons = document.getElementsByClassName('material-symbols-outlined')
+	for (const icon of icons) {
+		if (!(icon instanceof HTMLElement)) continue
+		revealIcon(icon)
+	}
+}
+
+/** @param {HTMLElement} icon */
+function revealIcon(icon) {
+	icon.style.display = icon.getAttribute('data-display') ?? ''
+	icon.classList.remove('hidden')
+}
+
+const observer = new MutationObserver((mutationsList, _) => {
+	for (const mutation of mutationsList) {
+		if (mutation.type !== 'childList') continue
+
+		for (const node of mutation.addedNodes) {
+			if (node.nodeType !== Node.ELEMENT_NODE) continue
+
+			/** @ts-ignore @type {HTMLElement} */
+			const element = node
+			for (const child of element.querySelectorAll('.material-symbols-outlined')) {
+				if (!(child instanceof HTMLElement)) continue
+				revealIcon(child)
+			}
+		}
+	}
+})
+observer.observe(document.body, {
+	childList: true,
+	subtree: true,
 })
 
 /** @param {string} path */
 async function trackClicked(path) {
-	if (path === app.currentPath) return
+	if (path === app.currentPath) {
+		const loadButton = document.getElementById('load-button')
+		if (loadButton) loadButton.click()
+		return
+	}
 
 	const error = document.getElementById('error')
 	if (error) error.innerText = ''
@@ -171,7 +228,7 @@ async function loadPlayer() {
 		added: {
 			for (let i = 0; i < recent.length; i++) {
 				const item = recent[i]
-				if (item.url === location.href) {
+				if (item && item.url === location.href) {
 					if (i === 0) break updated
 					item.name = app.currentPath
 					recent.splice(i, 1)
@@ -187,6 +244,13 @@ async function loadPlayer() {
 	}
 
 	await resetPlayer()
+
+	let lastPlaying;
+	if (lastPlaying = safeParse(localStorage.getItem('lastPlaying') ?? '')) {
+		if (lastPlaying.path === app.currentPath) {
+			elements.audio && (elements.audio.currentTime = lastPlaying.time)
+		}
+	}
 
 	// Begin loading
 	elements.audio && (elements.audio.src = app.signedUrl)
@@ -230,7 +294,6 @@ async function resetPlayer() {
 	// playing = false
 	// updatePlayButton()
 }
-
 
 async function play() {
 	if (!elements.audio) return console.error('No audio element')
@@ -305,6 +368,8 @@ addListeners: if (!app.addedListeners) {
 	app.addedListeners = true
 
 	elements.timeline?.addEventListener('pointerdown', (event) => {
+		if (elements.timeline?.hasAttribute('disabled')) return
+
 		const duration = audio.duration
 		const timelineWidth = elements.timeline?.offsetWidth ?? 0
 		const clickX = event.offsetX
@@ -314,15 +379,11 @@ addListeners: if (!app.addedListeners) {
 
 	// Drag functionality for the position indicator
 	elements.positionIndicator?.addEventListener('pointerdown', (e) => {
+		if (elements.positionIndicator?.hasAttribute('disabled')) return
+
 		e.stopPropagation()
 	
-		const wasPlaying = !!(
-			!audio.paused
-			&& !audio.ended
-			// && audio.currentTime > 0
-			// && audio.readyState >= 2 // HAVE_CURRENT_DATA
-		)
-
+		const wasPlaying = !audio.paused && !audio.ended
 		const paused = pause()
 
 		/** @param {any} event */
@@ -379,9 +440,9 @@ function updatePlayButton() {
 	playButton.classList.remove('spin')
 
 	if (!elements.audio) { playButton.innerText = 'error' }
+	else if (!app.loaded) { playButton.innerText = 'cached' }
 	else if (elements.audio.paused) { playButton.innerText = 'play_arrow' }
 	else if (elements.audio.ended) { playButton.innerText = 'play_arrow' }
-	else if (elements.audio.readyState < 2) { playButton.innerText = 'cached' }
 	else { playButton.innerText = 'pause' }
 }
 
@@ -412,3 +473,9 @@ function updateTimelineDisplay() {
 	elements.positionIndicator && (elements.positionIndicator.style.left = `${progress}%`)
 }
 
+/** @param {string} jsonString
+  * @returs {any | null} */
+function safeParse(jsonString) {
+	try { return JSON.parse(jsonString) }
+	catch (_) { return null }
+}

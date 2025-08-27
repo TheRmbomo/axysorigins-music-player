@@ -1,0 +1,9 @@
+# Generated
+hash.txt
+lambda.zip
+test_output.json
+
+# Local Development
+.git/
+tests/
+*.lua

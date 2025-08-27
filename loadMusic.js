@@ -10,12 +10,6 @@ async function loadMusic() {
 
 	if (nameElement?.innerText === name) return
 
-	// if (controller) {
-	// 	console.warn('Aborting:', nameElement.innerText)
-	// 	controller.abort()
-	// 	controller = null
-	// }
-
 	app.signedUrl = '{{ url }}'
 	app.currentPath = path
 	nameElement && (nameElement.innerText = name)
