@@ -1,14 +1,16 @@
-index.css
+index.py
+entries.py
+env.py
+router.py
+utils.py
+
+loadPlayer.js
+loadMusic.js
+loadPlaylist.js
 
 index.html
 password.html
 player.html
 playlist.html
 
-loadMusic.js
-loadPlayer.js
-loadPlaylist.js
-
-env.py
-index.py
-router.py
+index.css
