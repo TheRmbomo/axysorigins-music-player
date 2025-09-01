@@ -16,6 +16,9 @@ async function loadMusic() {
 	console.info('New:', name)
 	{{ loadPlayer }}
 
+	const playButton = document.getElementById('play')
+	if (playButton) playButton.removeAttribute('disabled')
+
 	if ('mediaSession' in navigator) {
 		navigator.mediaSession.metadata = new MediaMetadata({
 			title: name,
@@ -31,6 +34,24 @@ async function loadMusic() {
 			navigator.mediaSession.setActionHandler("play", play)
 			navigator.mediaSession.setActionHandler("pause", pause)
 		}
+	}
+
+	// @ts-ignore
+	if ('{{ hasLyrics }}' === 'true') {
+		let lyricsContainerElement;
+		if (lyricsContainerElement = document.getElementById('lyrics-container')) {
+			lyricsContainerElement.style.display = ''
+		}
+	}
+
+	let lyricsElement;
+	if (lyricsElement = document.getElementById('lyrics')) {
+		lyricsElement.innerHTML = '{{ lyrics }}'
+	}
+
+	let timingElement;
+	if (timingElement = document.getElementById('lyrics-timing')) {
+		timingElement.innerHTML = '{{ lyricsTiming }}'
 	}
 }
 loadMusic()

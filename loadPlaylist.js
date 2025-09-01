@@ -12,7 +12,7 @@ app.playlist = app.playlist || (app.playlist = [])
 var tabs = app.tabs
 
 /** @param {number} index */
-function setActive(index) {
+function setActiveTab(index) {
 	tabs.forEach((tab, i) => {
 		const selected = i === index
 		tab.setAttribute('aria-selected', String(selected))
@@ -36,25 +36,34 @@ function setActive(index) {
 }
 
 tabs.forEach((tab, i) => {
-	tab.addEventListener('click', () => setActive(i))
+	tab.addEventListener('click', () => setActiveTab(i))
 	tab.addEventListener('keydown', (e) => {
 		if (e.key === 'ArrowRight') {
 			e.preventDefault()
-			setActive((i + 1) % tabs.length)
+			setActiveTab((i + 1) % tabs.length)
 		} else if (e.key === 'ArrowLeft') {
 			e.preventDefault()
-			setActive((i - 1 + tabs.length) % tabs.length)
+			setActiveTab((i - 1 + tabs.length) % tabs.length)
 		} else if (e.key === 'Home') {
 			e.preventDefault()
-			setActive(0)
+			setActiveTab(0)
 		} else if (e.key === 'End') {
 			e.preventDefault()
-			setActive(tabs.length - 1)
+			setActiveTab(tabs.length - 1)
 		}
 	})
 })
 
-setActive(0)
+setActiveTab(0)
+
+/** @param {string} url */
+function addToPlaylist(url) {
+	const playlistPanel = document.getElementById('panel-playlist')
+	if (!playlistPanel) return
+
+	playlistPanel.insertAdjacentHTML('beforeend', entry(url, url))
+	app.playlist.push({url})
+}
 
 /** @typedef {{ url: string, name: string }} Recent */
 /** @returns {Recent[]} */
@@ -81,18 +90,7 @@ function loadRecent() {
 
 	recentPanel.innerHTML = ''
 	for (const item of recent) {
-		recentPanel.insertAdjacentHTML(
-			'beforeend',
-			`\
-<li>
-	<a
-	href="${item.url}" hx-push-url="${item.url}" hx-swap="none"
-	hx-on::before-request="trackClicked('${item.name}')"
-	class="flex-1 bg-slate-600 rounded-md p-1 hover:bg-slate-500 focus:bg-slate-500
-	cursor-pointer"
-	>${item.name}</a>
-</li>`
-		)
+		recentPanel.insertAdjacentHTML('beforeend', entry(item.url, item.name))
 	}
 
 	/* @ts-ignore */
@@ -100,3 +98,16 @@ function loadRecent() {
 }
 loadRecent()
 
+/** @param {string} url
+  * @param {string} name */
+function entry(url, name) {
+	return `\
+<li>
+	<a
+		href="${url}" hx-push-url="${url}" hx-swap="none"
+		hx-on::before-request="trackClicked('${name}')"
+		class="flex-1 bg-slate-600 rounded-md p-1 hover:bg-slate-500 focus:bg-slate-500
+		cursor-pointer"
+	>${name}</a>
+</li>`
+}

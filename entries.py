@@ -1,8 +1,8 @@
-import os, re, json
+import os, re
 from datetime import datetime
 from typing import Any
 
-from env import BUCKET, URL, INDEX, s3_client
+from env import URL, INDEX
 from utils import season_map, re_season, get_s3_folder, encode_path_components
 
 display_music_exts = ['.mp3', '.m4a']
@@ -16,7 +16,7 @@ current_season = (now.month - 1) // 3
 period_min = 13*4 + 1
 period_max = current_year*4 + current_season
 
-def display_folder_contents(path: str, response) -> str:
+def display_folder_contents(metadata, path: str, response) -> str:
     if not (path_match := re.search(r"^[\w_-]+(?:\/(\d{2}-[1-4]))?(?:\/([^/]+))?", path)):
         return ''
  
@@ -31,7 +31,7 @@ def display_folder_contents(path: str, response) -> str:
     entries += [key['Key'] for key in response.get('Contents', [])]
     entries += [folder['Prefix'] for folder in response.get('CommonPrefixes', [])]
 
-    add_season_metadata(entries, file_entries, season, show)
+    add_season_metadata(metadata, entries, file_entries)
 
     entries = sorted(entries, key=music_order, reverse=path == INDEX)
 
@@ -80,7 +80,15 @@ def display_folder_contents(path: str, response) -> str:
             # e.g. parent = 'folder/subfolder' + '/'
             name, ext = os.path.splitext(key.replace(parent, '').rstrip('/'))
 
-            label = re.sub(r"(OP|ED)( \d+)? FULL ", badge(r"\1\2"), name)
+            if name_match := re.match(r"(OP|ED) ?(\d+)? FULL ?(.*)", name):
+                number = f"&nbsp;{name_match.group(2)}" if name_match.group(2) else ""
+                label = ''.join([
+                    f"{badge(f"{name_match.group(1)}{number}")}",
+                    f'<span class="flex-1 text-center">{name_match.group(3)}</span>'
+                ])
+            else:
+                label = re.sub(r"(OP|ED) ?(\d+)? FULL ?", badge(r"\1&nbsp;\2"), name)
+                label = label.replace('FULL ', '')
 
             if ext != '' and ext not in display_music_exts:
                 continue
@@ -94,7 +102,7 @@ def display_folder_contents(path: str, response) -> str:
     }</p>
     <ul
         id="folder" hx-swap-oob="true" hx-boost="true"
-        class="flex flex-col gap-2 p-2 w-screen md:max-w-md"
+        class="flex flex-col gap-2 p-2 w-screen md:max-w-lg"
     >{'\n'.join(file_entries)}</ul>"""
 
 def badge(text):
@@ -103,7 +111,10 @@ def badge(text):
 def entry_element(path, label, is_file, liClassName: str = ''):
     encoded_path = encode_path_components(path)
     return f"""\
-    <li class="flex gap-2 bg-slate-700 p-2 rounded-md{f' {liClassName}' if liClassName else ''}">
+    <li
+        class="flex items-center gap-2 bg-slate-700 p-2
+        rounded-md{f' {liClassName}' if liClassName else ''}"
+    >
         <a
             href="{URL}/{encoded_path}"
             {f'hx-push-url="{URL}/{encoded_path}"' if not is_file else ''}
@@ -111,19 +122,33 @@ def entry_element(path, label, is_file, liClassName: str = ''):
             {f'hx-on::before-request="trackClicked(\'{
                 os.path.splitext(path)[0].replace(f'{INDEX}/', '')
             }\')"' if is_file else ''}
-            class="flex-1 flex gap-2 justify-center items-center bg-slate-600 rounded-md p-1 px-2 hover:bg-slate-500 focus:bg-slate-500
-            cursor-pointer"
+            class="self-stretch flex-1 flex gap-2 justify-center items-center bg-slate-600 rounded-md
+            p-1 px-2 text-sm hover:bg-slate-500 focus:bg-slate-500 cursor-pointer"
         >{label}</a>
-        {f"""<button
+        {f"""\
+        <button
             class="flex justify-center items-center
             bg-slate-600 rounded-md active:bg-slate-500 transition-all"
             style="padding:0.125rem;min-width:2.5rem;min-height:2.5rem"
+            onclick="addToPlaylist('{encoded_path}')"
         >
             <span
                 data-display="flex"
                 class="material-symbols-outlined flex justify-center items-center"
                 style="display:none;min-height:2rem"
             >playlist_add</span>
+        </button>
+        <button
+            class="flex justify-center items-center
+            bg-slate-600 rounded-md active:bg-slate-500 transition-all"
+            style="padding:0.125rem;min-width:2.5rem;min-height:2.5rem"
+            onclick="viewLyrics('{encoded_path}')"
+        >
+            <span
+                data-display="flex"
+                class="material-symbols-outlined flex justify-center items-center"
+                style="display:none;min-height:2rem"
+            >lyrics</span>
         </button>""" if is_file else ''}
     </li>"""
 
@@ -183,94 +208,82 @@ def add_season_navigation(path: str, file_entries: list[str], season, show):
         </ul></li>""",
     )
 
-def add_season_metadata(entries, file_entries, season, show):
-    metadata: dict[str, Any] | None = None
-    if (season):
-        meta_path_parts = [season]
-        if show:
-            meta_path_parts.append(show)
+def add_season_metadata(metadata, entries, file_entries):
+    if metadata == None:
+        return
 
-        meta_path = os.path.sep.join(meta_path_parts)
-        try:
-            response = s3_client.get_object(Bucket=BUCKET, Key=f'{INDEX}/{meta_path}/metadata.json')
-            metadata_file = response['Body']
-            metadata = json.load(metadata_file)
-        except Exception:
-            pass
+    folder_data: dict[str, Any] = metadata.get("folderMetadata", {})
+    if "previousSeason" in folder_data or "nextSeason" in folder_data:
+        file_entries.append(f"""\
+        <li><ul class="flex gap-2">
+            {entry_element(
+            f'{INDEX}/{folder_data['previousSeason']}/', f"""\
+            <strong class="{arrow_classes}" style="transform:translate(-1px, 1px)">skip_previous</strong>
+            <div class="flex-1 flex flex-col text-left">
+                <span class="text-xs">Previous Season</span>
+                <span class="text-sm">{folder_data['previousSeason']}</span>
+            </div>""",
+            False, liClassName="flex-1")\
+            if "previousSeason" in folder_data else '<li class="flex-1 p-2"></li>'}
 
-    if metadata != None:
-        folder_data: dict[str, Any] = metadata.get("folderMetadata", {})
-        if "previousSeason" in folder_data or "nextSeason" in folder_data:
-            file_entries.append(f"""\
-           <li><ul class="flex gap-2">
-                {entry_element(
-                f'{INDEX}/{folder_data['previousSeason']}/', f"""\
-                <strong class="{arrow_classes}" style="transform:translate(-1px, 1px)">skip_previous</strong>
-                <div class="flex-1 flex flex-col text-left">
-                    <span class="text-xs">Previous Season</span>
-                    <span class="text-sm">{folder_data['previousSeason']}</span>
-                </div>""",
-                False, liClassName="flex-1")\
-                if "previousSeason" in folder_data else '<li class="flex-1 p-2"></li>'}
+            {entry_element(
+            f'{INDEX}/{folder_data['nextSeason']}/', f"""\
+            <div class="flex-1 flex flex-col text-left">
+                <span class="text-xs">Next Season</span>
+                <span class="text-sm">{folder_data['nextSeason']}</span>
+            </div>
+            <strong class="{arrow_classes}" style="transform:translate(9px, 1px)">skip_next</strong>""",
+            False, liClassName="flex-1")\
+            if "nextSeason" in folder_data else '<li class="flex-1 p-2"></li>'}
+        </ul></li>""")
 
-                {entry_element(
-                f'{INDEX}/{folder_data['nextSeason']}/', f"""\
-                <div class="flex-1 flex flex-col text-left">
-                    <span class="text-xs">Next Season</span>
-                    <span class="text-sm">{folder_data['nextSeason']}</span>
-                </div>
-                <strong class="{arrow_classes}" style="transform:translate(9px, 1px)">skip_next</strong>""",
-                False, liClassName="flex-1")\
-                if "nextSeason" in folder_data else '<li class="flex-1 p-2"></li>'}
-            </ul></li>""")
+    if "previousCour" in folder_data or "nextCour" in folder_data:
+        file_entries.append(f"""\
+        <li><ul class="flex gap-2">
+            {entry_element(
+            f'{INDEX}/{folder_data['previousCour']}/', f"""\
+            <strong class="{arrow_classes}" style="transform:translateY(1px)">arrow_back_2</strong>
+            <div class="flex-1 flex flex-col text-left">
+                <span class="text-xs">Previous Cour</span>
+                <span class="text-sm">{folder_data['previousCour']}</span>
+            </div>""",
+            False, liClassName="flex-1")\
+            if "previousCour" in folder_data else '<li class="flex-1 p-2"></li>'}
 
-        if "previousCour" in folder_data or "nextCour" in folder_data:
-            file_entries.append(f"""\
-            <li><ul class="flex gap-2">
-                {entry_element(
-                f'{INDEX}/{folder_data['previousCour']}/', f"""\
-                <strong class="{arrow_classes}" style="transform:translateY(1px)">arrow_back_2</strong>
-                <div class="flex-1 flex flex-col text-left">
-                    <span class="text-xs">Previous Cour</span>
-                    <span class="text-sm">{folder_data['previousCour']}</span>
-                </div>""",
-                False, liClassName="flex-1")\
-                if "previousCour" in folder_data else '<li class="flex-1 p-2"></li>'}
+            {entry_element(
+            f'{INDEX}/{folder_data['nextCour']}/', f"""\
+            <div class="flex-1 flex flex-col text-left">
+                <span class="text-xs">Next Cour</span>
+                <span class="text-sm">{folder_data['nextCour']}</span>
+            </div>
+            <strong class="{arrow_classes}" style="transform:translate(8px, 1px)">play_arrow</strong>""",
+            False, liClassName="flex-1")\
+            if "nextCour" in folder_data else '<li class="flex-1 p-2"></li>'}
+        </ul></li>""")
 
-                {entry_element(
-                f'{INDEX}/{folder_data['nextCour']}/', f"""\
-                <div class="flex-1 flex flex-col text-left">
-                    <span class="text-xs">Next Cour</span>
-                    <span class="text-sm">{folder_data['nextCour']}</span>
-                </div>
-                <strong class="{arrow_classes}" style="transform:translate(8px, 1px)">play_arrow</strong>""",
-                False, liClassName="flex-1")\
-                if "nextCour" in folder_data else '<li class="flex-1 p-2"></li>'}
-            </ul></li>""")
+    if "previousSplitCour" in folder_data or "nextSplitCour" in folder_data:
+        file_entries.append(f"""\
+        <li><ul class="flex gap-2">
+            {entry_element(
+            f'{INDEX}/{folder_data['previousSplitCour']}/', f"""\
+            <strong class="{arrow_classes}" style="transform:translate(1px, 1px)">fast_rewind</strong>
+            <div class="flex-1 flex flex-col text-left">
+                <span class="text-xs">Previous Split Cour</span>
+                <span class="text-sm">{folder_data['previousSplitCour']}</span>
+            </div>""",
+            False, liClassName="flex-1")\
+            if "previousSplitCour" in folder_data else '<li class="flex-1 p-2"></li>'}
 
-        if "previousSplitCour" in folder_data or "nextSplitCour" in folder_data:
-            file_entries.append(f"""\
-            <li><ul class="flex gap-2">
-                {entry_element(
-                f'{INDEX}/{folder_data['previousSplitCour']}/', f"""\
-                <strong class="{arrow_classes}" style="transform:translate(1px, 1px)">fast_rewind</strong>
-                <div class="flex-1 flex flex-col text-left">
-                    <span class="text-xs">Previous Split Cour</span>
-                    <span class="text-sm">{folder_data['previousSplitCour']}</span>
-                </div>""",
-                False, liClassName="flex-1")\
-                if "previousSplitCour" in folder_data else '<li class="flex-1 p-2"></li>'}
+            {entry_element(
+            f'{INDEX}/{folder_data['nextSplitCour']}/', f"""\
+            <div class="flex-1 flex flex-col text-left">
+                <span class="text-xs">Next Split Cour</span>
+                <span class="text-sm">{folder_data['nextSplitCour']}</span>
+            </div>
+            <strong class="{arrow_classes}" style="transform:translate(9px, 1px)">fast_forward</strong>""",
+            False, liClassName="flex-1")\
+            if "nextSplitCour" in folder_data else '<li class="flex-1 p-2"></li>'}
+        </ul></li>""")
 
-                {entry_element(
-                f'{INDEX}/{folder_data['nextSplitCour']}/', f"""\
-                <div class="flex-1 flex flex-col text-left">
-                    <span class="text-xs">Next Split Cour</span>
-                    <span class="text-sm">{folder_data['nextSplitCour']}</span>
-                </div>
-                <strong class="{arrow_classes}" style="transform:translate(9px, 1px)">fast_forward</strong>""",
-                False, liClassName="flex-1")\
-                if "nextSplitCour" in folder_data else '<li class="flex-1 p-2"></li>'}
-            </ul></li>""")
-
-        for song_path in metadata.get("addSongs", []):
-            entries.append(f'{INDEX}/{song_path}')
+    for song_path in metadata.get("addSongs", []):
+        entries.append(f'{INDEX}/{song_path}')

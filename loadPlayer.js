@@ -10,6 +10,7 @@
   *     audioContext: AudioContext
   *     source: MediaElementAudioSourceNode
   *     animationFrameId: number | null
+  *     lyrics?: Lyrics
   *     tabs: HTMLElement[]
   *     panels: Element[]
   *     playlist: unknown[]
@@ -105,6 +106,15 @@ function initAudio() {
 		elements.timeline?.removeAttribute('disabled')
 		elements.positionIndicator?.removeAttribute('disabled')
 
+		let lyricsElement = document.getElementById('lyrics')
+		if (lyricsElement) {
+			console.info('Set Lyrics')
+			app.lyrics = new Lyrics(lyricsElement.innerText)
+			let timingElement = document.getElementById('lyrics-timing')
+			if (timingElement) {
+				app.lyrics.timing = safeParse(timingElement.innerText)
+			}
+		}
 	}
 
 	audio.onended = async () => {
@@ -112,7 +122,7 @@ function initAudio() {
 
 		app.pending = false
 		app.playing = false
-		updateTimelineDisplay()
+		updatePlayer()
 		updatePlayButton()
 
 		if ('mediaSession' in navigator) {
@@ -142,6 +152,52 @@ function initAudio() {
 				path: app.currentPath,
 				time: elements.audio?.currentTime,
 			}))
+		}
+	})
+
+	document.addEventListener('keydown', event => {
+		switch (event.key) {
+			case ' ': {
+				event.preventDefault()
+				document.body.blur()
+				if (app.loaded) togglePlay()
+				else {
+					const loadButton = document.getElementById('load-button')
+					if (loadButton) loadButton.click()
+				}
+			}; break
+			case 'ArrowLeft': {
+				event.preventDefault()
+				document.body.blur()
+				let d = 5
+				if (event.shiftKey) d = 1
+
+				if (app.loaded) {
+					audio.currentTime = Math.max(0, audio.currentTime - d)
+					updatePlayer()
+				}
+			}; break
+			case 'ArrowRight': {
+				event.preventDefault()
+				document.body.blur()
+				let d = 5
+				if (event.shiftKey) d = 1
+
+				if (app.loaded) {
+					audio.currentTime = Math.min(audio.duration, audio.currentTime + d)
+					updatePlayer()
+				}
+			}; break
+			default: {
+				if (event.key.match(/^\d$/)) {
+					event.preventDefault()
+					document.body.blur()
+					if (app.loaded) {
+						audio.currentTime = (parseInt(event.key) || 0) * audio.duration / 10
+						updatePlayer()
+					}
+				}
+			}
 		}
 	})
 }
@@ -271,7 +327,10 @@ async function resetPlayer() {
 
 	app.animationFrameId !== null && cancelAnimationFrame(app.animationFrameId)
 	app.animationFrameId = null
-	updateTimelineDisplay()
+	updatePlayer()
+
+	console.info('Clear Lyrics')
+	app.lyrics?.clear()
 
 	app.pending = false
 	app.playing = false
@@ -299,6 +358,9 @@ async function play() {
 	if (!elements.audio) return console.error('No audio element')
 	if (app.pending) return console.warn('Pending')
 
+	const loadButton = document.getElementById('load-button')
+	if (loadButton) loadButton.click()
+
 	app.pending = true
 
 	if (audioContext.state === 'suspended') {
@@ -309,7 +371,7 @@ async function play() {
 	
 	app.playing = true
 	app.pending = false
-	updateTimeline()
+	updatePlayerLoop()
 	updatePlayButton()
 	if ('mediaSession' in navigator) {
 		navigator.mediaSession.playbackState = 'playing'
@@ -356,9 +418,10 @@ function formatTime(time) {
 
 /** @param {number} seekTime */
 async function seekAudio(seekTime) {
-	console.log('Seek To:', formatTime(seekTime))
+	console.info('Seek To:', formatTime(seekTime))
 	elements.audio && (elements.audio.currentTime = seekTime)
-	updateTimeline()
+	app.lyrics?.clear()
+	updatePlayerLoop()
 }
 
 addListeners: if (!app.addedListeners) {
@@ -400,7 +463,7 @@ addListeners: if (!app.addedListeners) {
 			const duration = audio.duration
 			const seekTime = (newX / timelineRect.width) * duration
 			audio.currentTime = seekTime
-			updateTimelineDisplay()
+			updatePlayer()
 		}
 
 		const onMouseUp = async () => {
@@ -411,7 +474,7 @@ addListeners: if (!app.addedListeners) {
 			if (wasPlaying) {
 				await play()
 			} else {
-				updateTimelineDisplay()
+				updatePlayer()
 			}
 		}
 
@@ -446,22 +509,125 @@ function updatePlayButton() {
 	else { playButton.innerText = 'pause' }
 }
 
-function updateTimeline() {
-	updateTimelineDisplay()
+class Lyrics {
+	/** @type {string[][]} */ text
+	/** @type {number} */ lastMark
+	/** @type {null | [number, number, number?][]} */ timing
+
+	/** @param {string} text */
+	constructor(text) {
+		this.text = text.split('\n\n').map(x => x.split('\n'))
+		this.lastMark = 0
+		this.timing = null
+	}
+
+	/** @param {number} time */
+	mark(time) {
+		if (!this.timing) return
+
+		const lyricsElement = document.getElementById('lyrics')
+		if (!lyricsElement) return console.warn('No Lyrics Element')
+	
+		for (let i = this.timing.length - 1; i >= 0; i--) {
+			const index = this.timing[i]
+			if (index === undefined || index[0] > time) continue
+			
+			let [, startIndex, endIndex] = index
+			if (this.lastMark === startIndex) return
+			this.lastMark = startIndex
+
+			if (endIndex === undefined) {
+				[, endIndex] = this.timing[i + 1] ?? [undefined, Infinity]
+			}
+
+			let n = 0
+			let state = 'none'
+			let text = ''
+			for (const stanza of this.text) {
+				text += '<p>'
+				if (state === 'open') {
+					text += '<mark>'
+				}
+
+				for (let l=0; l < stanza.length; l++) {
+					const line = stanza[l]
+					if (!line) continue
+					
+					const i = n + line.length
+					
+					if (state === 'none') {
+						if (i <= startIndex) {
+							text += line
+						} else if (i >= endIndex) {
+							// start and end contained within the same line
+							state = 'closed'
+							const prefix = line.slice(0, startIndex - n)
+							const midfix = line.slice(startIndex - n, endIndex - n)
+							const suffix = line.slice(endIndex - n)
+							text += prefix + "<mark>" + midfix + "</mark>" + suffix
+						} else {
+							state = 'open'
+							const prefix = line.slice(0, startIndex - n)
+							const suffix = line.slice(startIndex - n)
+							text += prefix + "<mark>" + suffix
+						}
+					} else if (state === 'open') {
+						if (i < endIndex) {
+							text += line
+						} else {
+							state = 'closed'
+							const prefix = line.slice(0, endIndex - n)
+							const suffix = line.slice(endIndex - n)
+							text += prefix + "</mark>" + suffix
+						}
+					} else {
+						text += line
+					}
+
+					if (l < stanza.length - 1) text += '<br>'
+					n += line.length
+				}
+
+				if (state === 'open') {
+					text += '</mark>'
+				}
+				text += '</p>'
+			}
+
+			lyricsElement.innerHTML = text
+			return
+		}
+
+		this.clear()
+	}
+
+	clear() {
+		const lyricsElement = document.getElementById('lyrics')
+		if (!lyricsElement) return
+		lyricsElement.innerHTML = this.text.map(x => `<p>${x.join('<br>')}</p>`).join('')
+	}
+}
+
+function updatePlayerLoop() {
+	updatePlayer()
 
 	if (!elements.audio) return console.error('No audio element')
 	if (elements.audio.paused) return console.warn('Paused')
 	if (elements.audio.ended) return console.warn('Ended')
 
-	app.animationFrameId !== null && cancelAnimationFrame(app.animationFrameId)
-	app.animationFrameId = requestAnimationFrame(updateTimeline)
+	// app.animationFrameId !== null && cancelAnimationFrame(app.animationFrameId)
+	app.animationFrameId = requestAnimationFrame(updatePlayerLoop)
 }
 
-function updateTimelineDisplay() {
-	let currentTime = elements.audio?.currentTime ?? 0
-	if (elements.audio?.ended) currentTime = 0
+function updatePlayer() {
+	if (!elements.audio) return console.error('No audio element')
 
-	const duration = elements.audio?.duration ?? 0
+	app.lyrics?.mark(elements.audio.currentTime)
+
+	let currentTime = elements.audio.currentTime
+	if (elements.audio.ended) currentTime = 0
+
+	const duration = elements.audio.duration
 
 	const currentTimeString = formatTime(currentTime)
 	const durationTimeString = formatTime(duration)
@@ -471,6 +637,9 @@ function updateTimelineDisplay() {
 	const progress = (currentTime / duration) * 100
 	elements.progressBar && (elements.progressBar.style.width = `${progress}%`)
 	elements.positionIndicator && (elements.positionIndicator.style.left = `${progress}%`)
+}
+
+function viewLyrics() {
 }
 
 /** @param {string} jsonString

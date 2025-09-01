@@ -1,6 +1,6 @@
 #!/bin/bash
 
-FUNCTION_NAME="$1"
+FUNCTION_NAME="${1:-$MUSIC_LAMBDA}"
 if [[ -z "$FUNCTION_NAME" ]]; then
 	echo "Usage: $0 <function_name>" >&2
 	exit 1

@@ -1,54 +1,81 @@
 <div
 	id="player"
-	class="w-screen md:max-w-md flex flex-col gap-2 p-2 bg-slate-500 rounded-md select-none"
-	style="touch-action:none"
+	class="w-screen md:max-w-lg flex flex-col items-center gap-2 p-2"
 >
-	<audio id="hidden-audio" preload="auto" playsinline hidden style="display:none"></audio>
+	<div
+		class="w-full md:max-w-lg flex flex-col gap-2 p-2 bg-slate-500 rounded-md select-none"
+	>
+		<audio id="hidden-audio" preload="auto" playsinline hidden style="display:none"></audio>
 
-	<div class="flex gap-2 items-center">
-		<div
-			id="timeline" disabled
-			class="flex-1 mx-2 relative h-2 bg-slate-600 rounded-md"
-		>
-			<div id="progress-bar" class="h-full bg-blue-500 rounded-md" style="width:0"></div>
+		<div class="flex gap-2 items-center">
 			<div
-				id="position-indicator" disabled
-				class="absolute rounded-full bg-blue-300"
-				style="width:1rem;height:1rem;left:0;top:50%;margin-left:-0.5rem;transform:translateY(-50%);"
-			></div>
+				id="timeline" disabled
+				class="flex-1 mx-2 relative h-2 bg-slate-600 rounded-md"
+			>
+				<div id="progress-bar" class="h-full bg-blue-500 rounded-md" style="width:0"></div>
+				<div
+					id="position-indicator" disabled
+					class="absolute rounded-full bg-blue-300"
+					style="width:1rem;height:1rem;left:0;top:50%;margin-left:-0.5rem;transform:translateY(-50%);"
+				></div>
+			</div>
+			<div id="current-time">0:00 / 0:00</div>
 		</div>
-		<div id="current-time">0:00 / 0:00</div>
-	</div>
 
-	<div id="player-controls" class="flex gap-2 items-center">
-		<button
-			id="play" disabled
-			onclick="togglePlay()"
-			class="material-symbols-outlined rounded-full p-1 w-8 h-8"
-			style="outline:none"
-		>play_arrow</button>
+		<div id="player-controls" class="flex gap-2 items-center">
+			<button
+				id="play" disabled
+				onclick="togglePlay()"
+				class="material-symbols-outlined rounded-full p-1 w-8 h-8"
+				style="outline:none"
+			>play_arrow</button>
 
-		<!-- <button -->
-		<!-- 	id="volume" disabled -->
-		<!-- 	onclick="toggleVolume()" -->
-		<!-- 	class="material-symbols-outlined rounded-full p-1 hidden" -->
-		<!-- 	style="outline:none" -->
-		<!-- >volume_up</button> -->
+			<!-- <button -->
+			<!-- 	id="volume" disabled -->
+			<!-- 	onclick="toggleVolume()" -->
+			<!-- 	class="material-symbols-outlined rounded-full p-1 hidden" -->
+			<!-- 	style="outline:none" -->
+			<!-- >volume_up</button> -->
 
-		<span class="flex-1 inline-block"></span>
+			<span class="flex-1 inline-block"></span>
 
-		<button
-			id="loop" disabled hx-preserve
-			onclick="toggleLoop()"
-			class="material-symbols-outlined rounded-full p-1 w-8 h-8"
-			style="outline:none"
-		>autorenew</button>
+			<button
+				id="loop" disabled hx-preserve
+				onclick="toggleLoop()"
+				class="material-symbols-outlined rounded-full p-1 w-8 h-8"
+				style="outline:none"
+			>autorenew</button>
 
-		<!-- <button
+			<!-- <button
 id="download" disabled
 class="material-symbols-outlined rounded-full p-1"
 style="outline:none"
 >download</button> -->
+		</div>
+	</div>
+
+	<div
+		id="lyrics-container"
+		class="w-full md:max-w-lg flex flex-col gap-2
+		transition-all duration-200 max-h-12"
+		style="display:none"
+	>
+		<button
+			id="toggle-lyrics"
+			class="w-full p-2 bg-slate-600 rounded-md"
+			_="on click toggle .max-h-lg .max-h-12 on #lyrics-container
+			then toggle .max-h-lg .max-h-0 on #lyrics"
+		>Lyrics</button>
+
+		<div
+			id="lyrics"
+			class="w-full--16 md:w-full md:max-w-lg flex flex-col gap-2 px-1
+			overflow-auto overscroll-contain
+			transition-all duration-200 max-h-0"
+			style="width:calc(100% - 4rem)"
+		></div>
+
+		<script id="lyrics-timing" type="application/json"></script>
 	</div>
 </div>
 

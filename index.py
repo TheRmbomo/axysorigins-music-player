@@ -3,8 +3,9 @@ from enum import Enum
 import base64
 import urllib.parse
 import gzip
-import re
+import re, json
 from http import cookies
+from typing import Any
 
 from env import BUCKET, URL, INDEX, IMAGES, s3_client
 from router import route
@@ -71,17 +72,25 @@ def handler(event, _):
         title = f"{year} {season} | Seasons Music"
         description = f"Some anime music from the {year} {season} season"
 
+    metadata: dict[str, Any] | None = None
+
     match item_type:
         case ItemType.FOLDER:
             if basename != INDEX:
                 title = f"{basename} | Seasons Music"
 
-            print(path)
-            print(response)
+            try:
+                metadata_reponse = s3_client.get_object(Bucket=BUCKET, Key=f'{path}/metadata.json')
+                metadata = json.load(metadata_reponse['Body'])
+            except Exception:
+                pass
+
+            # print(path)
+            # print(response)
 
             hx_fragment = f"""\
             <title id="title" hx-swap-oob="true">{title}</title>
-            {display_folder_contents(path, response)}"""
+            {display_folder_contents(metadata, path, response)}"""
 
             audio = (
                 get_file_template("")
@@ -99,8 +108,14 @@ def handler(event, _):
 
             parent = os.path.dirname(path)
 
+            try:
+                metadata_reponse = s3_client.get_object(Bucket=BUCKET, Key=f'{parent}/metadata.json')
+                metadata = json.load(metadata_reponse['Body'])
+            except Exception:
+                pass
+            
             if (parent_folder := get_s3_folder(parent)):
-                parent_folder_content = display_folder_contents(parent, parent_folder)
+                parent_folder_content = display_folder_contents(metadata, parent, parent_folder)
             else:
                 error = "Failed to list parent folder."
 
@@ -108,12 +123,28 @@ def handler(event, _):
             name = os.path.basename(path_name)\
                 .replace('OP ', '')\
                 .replace('ED ', '')
-            name = re.sub(r"(\d+ )?FULL ", '', name)
+            name = re.sub(r"(\d+ )?FULL ?", '', name)
 
             title = f"{name} | Seasons Music"
 
             with open('loadMusic.js') as load_music_file:
                 load_music = load_music_file.read()
+
+            lyrics = (metadata
+                .get("songMetadata", {})
+                .get(name, {})
+                .get("lyrics", {})
+                .get("kanji", {})
+            if metadata else None)
+
+            lyrics_text = "".join([
+                f"<p>{"<br>".join(l.split("\n"))}</p>"
+                for l in lyrics
+                    .get("text", "")
+                    .split("\n\n")
+            ]) if lyrics else ""
+
+            lyrics_timing = json.dumps(lyrics.get("timing", [])) if lyrics else ""
 
             hx_fragment = f"""\
             <title id="title" hx-swap-oob="true">{title}</title>
@@ -123,6 +154,9 @@ def handler(event, _):
                     .replace("{{ path }}", path_name.replace("'", "\\'").replace(f'{INDEX}/', ''))
                     .replace("{{ name }}", name)
                     .replace("{{ loadPlayer }}", 'loadPlayer()' if HX_REQUEST else '')
+                    .replace("{{ hasLyrics }}", "true" if lyrics_text else "false")
+                    .replace("{{ lyrics }}", lyrics_text)
+                    .replace("{{ lyricsTiming }}", lyrics_timing)
                 }
             </script>"""
 
@@ -228,7 +262,7 @@ def get_file_template(content):
     return f"""\
     <div
         id="audio" hx-swap-oob="true"
-        class="max-w-md flex flex-col items-center gap-2"
+        class="md:max-w-lg flex flex-col items-center gap-2"
         style="min-width:50%"
     >
         <p id="name"></p>
